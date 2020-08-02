@@ -63,11 +63,15 @@ public class ZoneAffinityClusterResolver implements ClusterResolver<AwsEndpoint>
 
     @Override
     public List<AwsEndpoint> getClusterEndpoints() {
+        // ResolverUtils.splitByZone方法将zone和myZone相等的AwsEndpoint保存到返回值数组的0号位置，其他的保存到1号位置
         List<AwsEndpoint>[] parts = ResolverUtils.splitByZone(delegate.getClusterEndpoints(), myZone);
-        List<AwsEndpoint> myZoneEndpoints = parts[0];
-        List<AwsEndpoint> remainingEndpoints = parts[1];
+        List<AwsEndpoint> myZoneEndpoints = parts[0]; // 获取zone等于myZone的AwsEndpoint列表
+        List<AwsEndpoint> remainingEndpoints = parts[1]; // 获取其他AwsEndpoint列表
+        // 打乱myZoneEndpoints和remainingEndpoints，并合并两个列表，myZoneEndpoints的元素在前面
         List<AwsEndpoint> randomizedList = randomizeAndMerge(myZoneEndpoints, remainingEndpoints);
+        // 是否开启zone亲和性
         if (!zoneAffinity) {
+            // 如果不开启则反转列表，使得其他zone的AwsEndpoint对象在列表的前面
             Collections.reverse(randomizedList);
         }
 

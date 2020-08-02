@@ -232,6 +232,7 @@ public class Applications {
     @JsonIgnore
     public String getReconcileHashCode() {
         TreeMap<String, AtomicInteger> instanceCountMap = new TreeMap<String, AtomicInteger>();
+        // 遍历所有实例，保存状态和处于该状态的实例数量的map到instanceCountMap
         populateInstanceCountMap(instanceCountMap);
         return getReconcileHashCode(instanceCountMap);
     }
@@ -296,6 +297,8 @@ public class Applications {
      */
     public void shuffleAndIndexInstances(Map<String, Applications> remoteRegionsRegistry,
             EurekaClientConfig clientConfig, InstanceRegionChecker instanceRegionChecker) {
+        // clientConfig.shouldFilterOnlyUpInstances()方法返回eureka.shouldFilterOnlyUpInstances属性的值，默认返回true，表示是否过滤
+        // 不健康的实例
         shuffleInstances(clientConfig.shouldFilterOnlyUpInstances(), true, remoteRegionsRegistry, clientConfig,
                 instanceRegionChecker);
     }
@@ -309,13 +312,18 @@ public class Applications {
         Map<String, VipIndexSupport> virtualHostNameAppMap = new HashMap<>();
         for (Application application : appNameApplicationMap.values()) {
             if (indexByRemoteRegions) {
+                // 移除不健康的实例，移除region和当前实例的region不相等的实例，打乱实例列表
                 application.shuffleAndStoreInstances(remoteRegionsRegistry, clientConfig, instanceRegionChecker);
             } else {
+                // 移除不健康的实例，打乱实例列表
                 application.shuffleAndStoreInstances(filterUpInstances);
             }
+            // 以InstanceInfo对象的vipAddress属性和secureVipAddresses属性为key，InstanceInfo对象为value，保存到virtualHostNameAppMap和secureVirtualHostNameAppMap中
             this.addInstancesToVIPMaps(application, virtualHostNameAppMap, secureVirtualHostNameAppMap);
         }
+        // 过滤不健康的实例，打乱列表
         shuffleAndFilterInstances(virtualHostNameAppMap, filterUpInstances);
+        // 过滤不健康的实例，打乱列表
         shuffleAndFilterInstances(secureVirtualHostNameAppMap, filterUpInstances);
 
         this.virtualHostNameAppMap.putAll(virtualHostNameAppMap);

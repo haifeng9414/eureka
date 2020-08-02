@@ -236,11 +236,11 @@ public class EurekaClientServerRestIntegrationTest {
 
         server = new Server(8080);
 
-        WebAppContext webapp = new WebAppContext();
-        webapp.setContextPath("/");
-        webapp.setWar(warFile.getAbsolutePath());
-        server.setHandler(webapp);
-
+        WebAppContext webAppCtx = new WebAppContext(new File("./src/main/webapp").getAbsolutePath(), "/");
+        webAppCtx.setDescriptor(new File("./src/main/webapp/WEB-INF/web.xml").getAbsolutePath());
+        webAppCtx.setResourceBase(new File("./src/main/resources").getAbsolutePath());
+        webAppCtx.setClassLoader(Thread.currentThread().getContextClassLoader());
+        server.setHandler(webAppCtx);
         server.start();
 
         eurekaServiceUrl = "http://localhost:8080/v2";

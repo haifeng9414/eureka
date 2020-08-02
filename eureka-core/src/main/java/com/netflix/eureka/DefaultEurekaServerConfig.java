@@ -62,6 +62,7 @@ import org.slf4j.LoggerFactory;
  *
  */
 @Singleton
+// 实现了EurekaServerConfig接口，为eureka server设置了大部分属性的默认值
 public class DefaultEurekaServerConfig implements EurekaServerConfig {
     private static final String ARCHAIUS_DEPLOYMENT_ENVIRONMENT = "archaius.deployment.environment";
     private static final String TEST = "test";
@@ -102,15 +103,23 @@ public class DefaultEurekaServerConfig implements EurekaServerConfig {
     }
 
     private void init() {
+        // 获取eureka.environment属性的值，默认值为test
         String env = ConfigurationManager.getConfigInstance().getString(
                 EUREKA_ENVIRONMENT, TEST);
+        // 保存env的配置
         ConfigurationManager.getConfigInstance().setProperty(
                 ARCHAIUS_DEPLOYMENT_ENVIRONMENT, env);
 
+        // 获取eureka.server.props属性的值，默认值为eureka-server，该值会被作为配置文件的文件名使用，即{eureka.server.props}.properties文件
         String eurekaPropsFile = EUREKA_PROPS_FILE.get();
         try {
             // ConfigurationManager
             // .loadPropertiesFromResources(eurekaPropsFile);
+            // 通过Thread.currentThread().getContextClassLoader()在classpath中获取配置文件，根据上面的默认值配置，默认找的是
+            // eureka-server.properties文件
+            // 查看com.netflix.config.ConfigurationManager类的loadCascadedProperties方法可以发现，如果env不为空，则在找到eureka-server.properties文件
+            // 之后，还会寻找eureka-server-{env}.properties文件，并以该文件的配置覆盖eureka-server.properties文件的配置
+            // 下面的方法运行完后配置文件的配置会保存到ConfigurationManager的instance属性中
             ConfigurationManager
                     .loadCascadedPropertiesFromResources(eurekaPropsFile);
         } catch (IOException e) {

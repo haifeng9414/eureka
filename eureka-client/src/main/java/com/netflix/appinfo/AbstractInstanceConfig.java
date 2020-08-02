@@ -33,6 +33,7 @@ import org.slf4j.LoggerFactory;
  * @author Karthik Ranganathan
  *
  */
+// 为EurekaInstanceConfig提供了大部分属性的默认值
 public abstract class AbstractInstanceConfig implements EurekaInstanceConfig {
     private static final Logger logger = LoggerFactory.getLogger(AbstractInstanceConfig.class);
 

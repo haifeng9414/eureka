@@ -57,6 +57,8 @@ public final class EurekaHttpClients {
                                                              EndpointRandomizer randomizer
     ) {
 
+        // 当eureka.useBootstrapResolverForQuery属性为true时使用wrapClosable(bootstrapResolver)作为ClosableResolver接口的
+        // 实现类，默认为true，wrapClosable方法只是返回一个适配器
         ClosableResolver queryResolver = transportConfig.useBootstrapResolverForQuery()
                 ? wrapClosable(bootstrapResolver)
                 : queryClientResolver(bootstrapResolver, transportClientFactory,
@@ -110,6 +112,7 @@ public final class EurekaHttpClients {
             final InstanceInfo myInstanceInfo,
             final ApplicationsResolver.ApplicationsSource applicationsSource,
             final EndpointRandomizer randomizer) {
+        // 判断eureka.bootstrapResolverStrategy属性的值是否等于composite，默认该属性为null
         if (COMPOSITE_BOOTSTRAP_STRATEGY.equals(transportConfig.getBootstrapResolverStrategy())) {
             if (clientConfig.shouldFetchRegistry()) {
                 return compositeBootstrapResolver(
@@ -137,11 +140,14 @@ public final class EurekaHttpClients {
     static ClosableResolver<AwsEndpoint> defaultBootstrapResolver(final EurekaClientConfig clientConfig,
                                                                   final InstanceInfo myInstanceInfo,
                                                                   final EndpointRandomizer randomizer) {
+        // 如果没有设置eureka.region属性，则默认获取eureka.us-east-1.availabilityZones属性的值，默认为defaultZone
         String[] availZones = clientConfig.getAvailabilityZones(clientConfig.getRegion());
+        // 默认获取availZones的第0个
         String myZone = InstanceInfo.getZone(availZones, myInstanceInfo);
 
+        // ZoneAffinityClusterResolver用于返回AwsEndpoint列表，并将zone等于传入的myZone的AwsEndpoint对象放在列表的前面
         ClusterResolver<AwsEndpoint> delegateResolver = new ZoneAffinityClusterResolver(
-                new ConfigClusterResolver(clientConfig, myInstanceInfo),
+                new ConfigClusterResolver(clientConfig, myInstanceInfo), // ConfigClusterResolver为ZoneAffinityClusterResolver提供AwsEndpoint列表
                 myZone,
                 true,
                 randomizer

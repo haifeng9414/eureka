@@ -110,6 +110,7 @@ public class EurekaBootStrap implements ServletContextListener {
     @Override
     public void contextInitialized(ServletContextEvent event) {
         try {
+            // 初始化eureka.datacenter属性和eureka.environment属性属性
             initEurekaEnvironment();
             initEurekaServerContext();
 
@@ -127,15 +128,19 @@ public class EurekaBootStrap implements ServletContextListener {
     protected void initEurekaEnvironment() throws Exception {
         logger.info("Setting the eureka configuration..");
 
+        // 获取eureka.datacenter属性，如果值为cloud则eureka server会认为其运行在aws环境中
         String dataCenter = ConfigurationManager.getConfigInstance().getString(EUREKA_DATACENTER);
         if (dataCenter == null) {
             logger.info("Eureka data center value eureka.datacenter is not set, defaulting to default");
+            // 如果没有设置eureka.datacenter属性，则使用default值，并保存到archaius.deployment.datacenter环境变量中
             ConfigurationManager.getConfigInstance().setProperty(ARCHAIUS_DEPLOYMENT_DATACENTER, DEFAULT);
         } else {
             ConfigurationManager.getConfigInstance().setProperty(ARCHAIUS_DEPLOYMENT_DATACENTER, dataCenter);
         }
+        // 获取eureka.environment属性
         String environment = ConfigurationManager.getConfigInstance().getString(EUREKA_ENVIRONMENT);
         if (environment == null) {
+            // 默认设置为test，并保存到archaius.deployment.environment属性中
             ConfigurationManager.getConfigInstance().setProperty(ARCHAIUS_DEPLOYMENT_ENVIRONMENT, TEST);
             logger.info("Eureka environment value eureka.environment is not set, defaulting to test");
         }
@@ -145,26 +150,46 @@ public class EurekaBootStrap implements ServletContextListener {
      * init hook for server context. Override for custom logic.
      */
     protected void initEurekaServerContext() throws Exception {
+        // DefaultEurekaServerConfig表示当前eureka server的配置，其构造函数从classpath中获取eureka-server.properties文件和
+        // eureka-server-test.properties文件并将配置保存到ConfigurationManager的instance属性中
+        // DefaultEurekaServerConfig类也为大部分属性提供了默认值
         EurekaServerConfig eurekaServerConfig = new DefaultEurekaServerConfig();
 
         // For backward compatibility
+        // 初始化序列化和反序列化工具类
         JsonXStream.getInstance().registerConverter(new V1AwareInstanceInfoConverter(), XStream.PRIORITY_VERY_HIGH);
         XmlXStream.getInstance().registerConverter(new V1AwareInstanceInfoConverter(), XStream.PRIORITY_VERY_HIGH);
 
         logger.info("Initializing the eureka client...");
         logger.info(eurekaServerConfig.getJsonCodecName());
+        // ServerCodecs用于获取编码和解码工具类，可以将对象编码为字符串或输出到流
         ServerCodecs serverCodecs = new DefaultServerCodecs(eurekaServerConfig);
 
         ApplicationInfoManager applicationInfoManager = null;
 
+        // eurekaClient默认为null
         if (eurekaClient == null) {
+            // isCloud方法判断archaius.deployment.datacenter属性的值是否等于cloud，默认为false
+            // 所以默认EurekaInstanceConfig的实现为MyDataCenterInstanceConfig。MyDataCenterInstanceConfig表示当前的eureka server
+            // 不是运行在一个云环境
+            // EurekaInstanceConfig接口定义了被注册到eureka server的实例应该提供的配置信息，MyDataCenterInstanceConfig类继承自
+            // PropertiesInstanceConfig类，PropertiesInstanceConfig类实现了EurekaInstanceConfig接口的大部分方法，提供了大部分属性的
+            // 默认值，同时PropertiesInstanceConfig类的构造函数默认会获取eureka-client.properties文件的配置并保存到ConfigurationManager
+            // 的instance属性中
             EurekaInstanceConfig instanceConfig = isCloud(ConfigurationManager.getDeploymentContext())
                     ? new CloudInstanceConfig()
                     : new MyDataCenterInstanceConfig();
-            
+
+            // EurekaConfigBasedInstanceInfoProvider类实现了Provider<InstanceInfo>，能够获取InstanceInfo对象，InstanceInfo
+            // 对象表示一个注册到了eureka server的实例的信息和配置，主要包括instanceId、address、心跳状态和配置等，具体的可以看
+            // EurekaConfigBasedInstanceInfoProvider类的get方法的实现
+            // ApplicationInfoManager对象持有EurekaInstanceConfig和EurekaConfigBasedInstanceInfoProvider对象，能够表示一个
+            // 实例的信息，通过ApplicationInfoManager对象可以修改实例的信息，同时还支持添加StatusChangeListener
             applicationInfoManager = new ApplicationInfoManager(
                     instanceConfig, new EurekaConfigBasedInstanceInfoProvider(instanceConfig).get());
             
+            // EurekaClientConfig接口定义了一个eureka client需要提供的配置信息，这些信息决定了如何和eureka server交互，
+            // DefaultEurekaClientConfig对象根据eureka-client.properties文件的内容返回这些配置信息，并为大部分配置提供了默认值
             EurekaClientConfig eurekaClientConfig = new DefaultEurekaClientConfig();
             eurekaClient = new DiscoveryClient(applicationInfoManager, eurekaClientConfig);
         } else {

@@ -462,6 +462,7 @@ public class InstanceInfo {
             result.hostName = hostName;
             if ((existingHostName != null)
                     && !(hostName.equals(existingHostName))) {
+                // 如果hostname的值变了，则属性下面的几个值，因为这些值用到了result.hostName属性
                 refreshStatusPageUrl().refreshHealthCheckUrl()
                         .refreshVIPAddress().refreshSecureVIPAddress();
             }

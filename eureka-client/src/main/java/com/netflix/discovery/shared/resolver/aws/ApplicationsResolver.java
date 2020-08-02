@@ -70,6 +70,8 @@ public class ApplicationsResolver implements ClusterResolver<AwsEndpoint> {
 
     }
 
+    // ApplicationsSource用于判断上次获取实例信息的时间到现在是否超过了指定的时间，如果是则其getApplications方法返回null，即用于
+    // 判断localRegionApps中保存的应用信息是否可用
     public interface ApplicationsSource {
         /**
          * @return the known set of Applications, or null if the data is beyond the stalenss threshold

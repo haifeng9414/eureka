@@ -98,7 +98,9 @@ public class RetryableEurekaHttpClient extends EurekaHttpClientDecorator {
     protected <R> EurekaHttpResponse<R> execute(RequestExecutor<R> requestExecutor) {
         List<EurekaEndpoint> candidateHosts = null;
         int endpointIdx = 0;
+        // 循环尝试执行请求
         for (int retry = 0; retry < numberOfRetries; retry++) {
+            // EurekaHttpClient是真正发送请求的对象
             EurekaHttpClient currentHttpClient = delegate.get();
             EurekaEndpoint currentEndpoint = null;
             if (currentHttpClient == null) {

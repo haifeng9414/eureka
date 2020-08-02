@@ -216,16 +216,20 @@ public class Application {
         synchronized (instances) {
             instanceInfoList = new ArrayList<InstanceInfo>(instances);
         }
+        // indexByRemoteRegions默认为true
         boolean remoteIndexingActive = indexByRemoteRegions && null != instanceRegionChecker && null != clientConfig
                 && null != remoteRegionsRegistry;
+        // 过滤不健康的instance
         if (remoteIndexingActive || filterUpInstances) {
             Iterator<InstanceInfo> it = instanceInfoList.iterator();
             while (it.hasNext()) {
                 InstanceInfo instanceInfo = it.next();
                 if (filterUpInstances && InstanceStatus.UP != instanceInfo.getStatus()) {
-                    it.remove();
+                    it.remove(); // 移除不健康的实例
                 } else if (remoteIndexingActive) {
+                    // 获取实例的region，如果该实例的DataCenterName不为Amazon，则返回null
                     String instanceRegion = instanceRegionChecker.getInstanceRegion(instanceInfo);
+                    // 移除非当前region的实例
                     if (!instanceRegionChecker.isLocalRegion(instanceRegion)) {
                         Applications appsForRemoteRegion = remoteRegionsRegistry.get(instanceRegion);
                         if (null == appsForRemoteRegion) {
@@ -248,6 +252,7 @@ public class Application {
             }
 
         }
+        // 打乱实例列表
         Collections.shuffle(instanceInfoList, shuffleRandom);
         this.shuffledInstances.set(instanceInfoList);
     }

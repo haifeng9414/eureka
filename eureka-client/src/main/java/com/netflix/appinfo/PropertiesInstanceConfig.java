@@ -48,17 +48,25 @@ import static com.netflix.appinfo.PropertyBasedInstanceConfigConstants.*;
  * @author Karthik Ranganathan
  *
  */
+/*
+ 表示一个被注册到eureka server的实例的配置信息，EurekaInstanceConfig接口指定了实例需要提供的信息，AbstractInstanceConfig
+ 抽象类实现了EurekaInstanceConfig接口的大部分方法，为大部分属性提供了默认值
+ */
 public abstract class PropertiesInstanceConfig extends AbstractInstanceConfig implements EurekaInstanceConfig {
 
+    // 默认值为eureka.
     protected final String namespace;
     protected final DynamicPropertyFactory configInstance;
+    // 默认值为unknown
     private String appGrpNameFromEnv;
 
     public PropertiesInstanceConfig() {
+        // 设置默认namespace为eureka
         this(CommonConstants.DEFAULT_CONFIG_NAMESPACE);
     }
 
     public PropertiesInstanceConfig(String namespace) {
+        // 设置默认dataCenter name为MyOwn
         this(namespace, new DataCenterInfo() {
             @Override
             public Name getName() {
@@ -70,13 +78,17 @@ public abstract class PropertiesInstanceConfig extends AbstractInstanceConfig im
     public PropertiesInstanceConfig(String namespace, DataCenterInfo info) {
         super(info);
 
+        // 为namespace默认加上一个'.'，因为大部分属性的默认值都是namespace.xxx的形式
         this.namespace = namespace.endsWith(".")
                 ? namespace
                 : namespace + ".";
 
+        // 默认值为unknown
         appGrpNameFromEnv = ConfigurationManager.getConfigInstance()
                 .getString(FALLBACK_APP_GROUP_KEY, Values.UNKNOWN_APPLICATION);
 
+        // 从eureka.client.props属性中获取配置文件名称，如果eureka.client.props属性为空，则默认使用eureka-client.properties
+        // 文件。解析的配置会被保存到ConfigurationManager的instance属性中
         this.configInstance = Archaius1Utils.initConfig(CommonConstants.CONFIG_FILE_NAME);
     }
 

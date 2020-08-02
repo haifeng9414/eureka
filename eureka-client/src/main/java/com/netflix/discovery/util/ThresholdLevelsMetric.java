@@ -30,6 +30,11 @@ import org.slf4j.LoggerFactory;
  *
  * @author Tomasz Bak
  */
+/*
+ ThresholdLevelsMetric用于表示某个以数组形式展示的监控的值，监控的名称由构造函数传入的owner的类名和prefix决定，值的数组
+ 由构造函数的levels决定，如levels为{30s=0, 60s=0, 120=0, 240s=0, 480s=0}，当调用当前类的update方法并传入90时，监控的值
+ 为{30s=0, 60s=1, 120=0, 240s=0, 480s=0}
+ */
 public class ThresholdLevelsMetric {
 
     public static final ThresholdLevelsMetric NO_OP_METRIC = new NoOpThresholdLevelMetric();
@@ -39,6 +44,7 @@ public class ThresholdLevelsMetric {
     private final long[] levels;
     private final LongGauge[] gauges;
 
+    // 默认owner为DiscoveryClient
     public ThresholdLevelsMetric(Object owner, String prefix, long[] levels) {
         this.levels = levels;
         this.gauges = new LongGauge[levels.length];
