@@ -1,0 +1,457 @@
+查看测试类link:eureka-server/src/test/java/com/netflix/eureka/resources/EurekaClientServerRestIntegrationTest.java[EurekaClientServerRestIntegrationTest]的``startServer()``方法可以发现，Eureka Server实际上就是个Servlet，默认使用``jersey``启动，下面是测试使用的``web.xml``文件：
+
+.web.xml
+[xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app version="2.5"
+        xmlns="http://java.sun.com/xml/ns/javaee"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://java.sun.com/xml/ns/javaee
+    http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd">
+<listener>
+    <listener-class>com.netflix.eureka.EurekaBootStrap</listener-class>
+</listener>
+
+<filter>
+    <filter-name>statusFilter</filter-name>
+    <filter-class>com.netflix.eureka.StatusFilter</filter-class>
+</filter>
+
+<filter>
+    <filter-name>requestAuthFilter</filter-name>
+    <filter-class>com.netflix.eureka.ServerRequestAuthFilter</filter-class>
+</filter>
+<filter>
+    <filter-name>rateLimitingFilter</filter-name>
+    <filter-class>com.netflix.eureka.RateLimitingFilter</filter-class>
+</filter>
+<filter>
+    <filter-name>gzipEncodingEnforcingFilter</filter-name>
+    <filter-class>com.netflix.eureka.GzipEncodingEnforcingFilter</filter-class>
+</filter>
+
+<filter>
+    <filter-name>jersey</filter-name>
+    <filter-class>com.sun.jersey.spi.container.servlet.ServletContainer</filter-class>
+    <init-param>
+    <param-name>com.sun.jersey.config.property.WebPageContentRegex</param-name>
+    <param-value>/(flex|images|js|css|jsp)/.*</param-value>
+    </init-param>
+    <init-param>
+    <param-name>com.sun.jersey.config.property.packages</param-name>
+    <param-value>com.sun.jersey;com.netflix</param-value>
+    </init-param>
+
+    <!-- GZIP content encoding/decoding -->
+    <init-param>
+    <param-name>com.sun.jersey.spi.container.ContainerRequestFilters</param-name>
+    <param-value>com.sun.jersey.api.container.filter.GZIPContentEncodingFilter</param-value>
+    </init-param>
+    <init-param>
+    <param-name>com.sun.jersey.spi.container.ContainerResponseFilters</param-name>
+    <param-value>com.sun.jersey.api.container.filter.GZIPContentEncodingFilter</param-value>
+    </init-param>
+</filter>
+
+<filter-mapping>
+    <filter-name>statusFilter</filter-name>
+    <url-pattern>/*</url-pattern>
+</filter-mapping>
+
+<filter-mapping>
+    <filter-name>requestAuthFilter</filter-name>
+    <url-pattern>/*</url-pattern>
+</filter-mapping>
+
+<!-- Uncomment this to enable rate limiter filter.
+<filter-mapping>
+    <filter-name>rateLimitingFilter</filter-name>
+    <url-pattern>/v2/apps</url-pattern>
+    <url-pattern>/v2/apps/*</url-pattern>
+</filter-mapping>
+-->
+
+<filter-mapping>
+    <filter-name>gzipEncodingEnforcingFilter</filter-name>
+    <url-pattern>/v2/apps</url-pattern>
+    <url-pattern>/v2/apps/*</url-pattern>
+</filter-mapping>
+
+<filter-mapping>
+    <filter-name>jersey</filter-name>
+    <url-pattern>/*</url-pattern>
+</filter-mapping>
+
+<welcome-file-list>
+    <welcome-file>jsp/status.jsp</welcome-file>
+</welcome-file-list>
+
+</web-app>
+----
+
+其中比较关键的是：
+[xml]
+----
+<listener>
+    <listener-class>com.netflix.eureka.EurekaBootStrap</listener-class>
+</listener>
+----
+
+``EurekaBootStrap``类实现了``ServletContextListener``接口，在启动时会执行``contextInitialized()``方法，Eureka Server的启动过程都实现在该方法中，该方法代码：
+[java]
+----
+@Override
+public void contextInitialized(ServletContextEvent event) {
+    try {
+        // 初始化eureka.datacenter属性和eureka.environment属性属性
+        initEurekaEnvironment();
+        // 初始化各种组件，创建定时任务
+        initEurekaServerContext();
+
+        ServletContext sc = event.getServletContext();
+        sc.setAttribute(EurekaServerContext.class.getName(), serverContext);
+    } catch (Throwable e) {
+        logger.error("Cannot bootstrap eureka server :", e);
+        throw new RuntimeException("Cannot bootstrap eureka server :", e);
+    }
+}
+----
+
+首先调用的是``initEurekaEnvironment()``方法：
+[java]
+----
+protected void initEurekaEnvironment() throws Exception {
+    logger.info("Setting the eureka configuration..");
+
+    // 获取eureka.datacenter属性，如果值为cloud则eureka server会认为其运行在aws环境中
+    String dataCenter = ConfigurationManager.getConfigInstance().getString(EUREKA_DATACENTER);
+    if (dataCenter == null) {
+        logger.info("Eureka data center value eureka.datacenter is not set, defaulting to default");
+        // 如果没有设置eureka.datacenter属性，则使用default值，并保存到archaius.deployment.datacenter环境变量中
+        ConfigurationManager.getConfigInstance().setProperty(ARCHAIUS_DEPLOYMENT_DATACENTER, DEFAULT);
+    } else {
+        ConfigurationManager.getConfigInstance().setProperty(ARCHAIUS_DEPLOYMENT_DATACENTER, dataCenter);
+    }
+    // 获取eureka.environment属性
+    String environment = ConfigurationManager.getConfigInstance().getString(EUREKA_ENVIRONMENT);
+    if (environment == null) {
+        // 默认设置为test，并保存到archaius.deployment.environment属性中
+        ConfigurationManager.getConfigInstance().setProperty(ARCHAIUS_DEPLOYMENT_ENVIRONMENT, TEST);
+        logger.info("Eureka environment value eureka.environment is not set, defaulting to test");
+    }
+}
+----
+
+``initEurekaEnvironment()``方法读取``eureka.datacenter``和``eureka.environment``属性。默认分别初始化为default和test
+
+下面再看看``initEurekaServerContext()``方法：
+[java]
+----
+protected void initEurekaServerContext() throws Exception {
+    // DefaultEurekaServerConfig表示当前eureka server的配置，其构造函数从classpath中获取eureka-server.properties文件和
+    // eureka-server-test.properties文件并将配置保存到ConfigurationManager的instance属性中
+    // DefaultEurekaServerConfig类也为大部分属性提供了默认值
+    EurekaServerConfig eurekaServerConfig = new DefaultEurekaServerConfig();
+
+    // For backward compatibility
+    // 初始化序列化和反序列化工具类
+    JsonXStream.getInstance().registerConverter(new V1AwareInstanceInfoConverter(), XStream.PRIORITY_VERY_HIGH);
+    XmlXStream.getInstance().registerConverter(new V1AwareInstanceInfoConverter(), XStream.PRIORITY_VERY_HIGH);
+
+    logger.info("Initializing the eureka client...");
+    logger.info(eurekaServerConfig.getJsonCodecName());
+    // ServerCodecs用于获取编码和解码工具类，可以将对象编码为字符串或输出到流
+    ServerCodecs serverCodecs = new DefaultServerCodecs(eurekaServerConfig);
+
+    ApplicationInfoManager applicationInfoManager = null;
+
+    // eurekaClient默认为null
+    if (eurekaClient == null) {
+        // isCloud方法判断archaius.deployment.datacenter属性的值是否等于cloud，默认为false
+        // 所以默认EurekaInstanceConfig的实现为MyDataCenterInstanceConfig。MyDataCenterInstanceConfig表示当前的eureka server
+        // 不是运行在一个云环境
+        // EurekaInstanceConfig接口定义了被注册到eureka server的实例应该提供的配置信息，MyDataCenterInstanceConfig类继承自
+        // PropertiesInstanceConfig类，PropertiesInstanceConfig类实现了EurekaInstanceConfig接口的大部分方法，提供了大部分属性的
+        // 默认值，同时PropertiesInstanceConfig类的构造函数默认会获取eureka-client.properties文件的配置并保存到ConfigurationManager
+        // 的instance属性中
+        EurekaInstanceConfig instanceConfig = isCloud(ConfigurationManager.getDeploymentContext())
+                ? new CloudInstanceConfig()
+                : new MyDataCenterInstanceConfig();
+
+        // EurekaConfigBasedInstanceInfoProvider类实现了Provider<InstanceInfo>，能够获取InstanceInfo对象，InstanceInfo
+        // 对象表示一个注册到了eureka server的实例的信息和配置，主要包括instanceId、address、心跳状态和配置等，具体的可以看
+        // EurekaConfigBasedInstanceInfoProvider类的get方法的实现
+        // ApplicationInfoManager对象持有EurekaInstanceConfig和EurekaConfigBasedInstanceInfoProvider对象，能够表示一个
+        // 实例的信息，通过ApplicationInfoManager对象可以修改实例的信息，同时还支持添加StatusChangeListener
+        applicationInfoManager = new ApplicationInfoManager(
+                instanceConfig, new EurekaConfigBasedInstanceInfoProvider(instanceConfig).get());
+            
+        // EurekaClientConfig接口定义了一个eureka client需要提供的配置信息，这些信息决定了如何和eureka server交互，
+        // DefaultEurekaClientConfig对象根据eureka-client.properties文件的内容返回这些配置信息，并为大部分配置提供了默认值
+        EurekaClientConfig eurekaClientConfig = new DefaultEurekaClientConfig();
+        // DiscoveryClient对象可以说是最重要的对象了，该对象能够获取到eureka server上的实例信息，通过开启了心跳和拉取实例信息的定时任务
+        eurekaClient = new DiscoveryClient(applicationInfoManager, eurekaClientConfig);
+    } else {
+        applicationInfoManager = eurekaClient.getApplicationInfoManager();
+    }
+
+    PeerAwareInstanceRegistry registry;
+    if (isAws(applicationInfoManager.getInfo())) {
+        registry = new AwsInstanceRegistry(
+                eurekaServerConfig,
+                eurekaClient.getEurekaClientConfig(),
+                serverCodecs,
+                eurekaClient
+        );
+        awsBinder = new AwsBinderDelegate(eurekaServerConfig, eurekaClient.getEurekaClientConfig(), registry, applicationInfoManager);
+        awsBinder.start();
+    } else {
+        registry = new PeerAwareInstanceRegistryImpl(
+                eurekaServerConfig,
+                eurekaClient.getEurekaClientConfig(),
+                serverCodecs,
+                eurekaClient
+        );
+    }
+
+    // 创建PeerEurekaNodes对象
+    PeerEurekaNodes peerEurekaNodes = getPeerEurekaNodes(
+            registry,
+            eurekaServerConfig,
+            eurekaClient.getEurekaClientConfig(),
+            serverCodecs,
+            applicationInfoManager
+    );
+
+    // DefaultEurekaServerContext对象包含了下面这些信息
+    serverContext = new DefaultEurekaServerContext(
+            eurekaServerConfig,
+            serverCodecs,
+            registry,
+            peerEurekaNodes,
+            applicationInfoManager
+    );
+
+    // 将serverContext对象保存到单例的EurekaServerContextHolder对象中
+    EurekaServerContextHolder.initialize(serverContext);
+
+    // 调用peerEurekaNodes和registry的初始化方法
+    serverContext.initialize();
+    logger.info("Initialized server context");
+
+    // Copy registry from neighboring eureka node
+    int registryCount = registry.syncUp();
+    registry.openForTraffic(applicationInfoManager, registryCount);
+
+    // Register all monitoring statistics.
+    EurekaMonitors.registerAllStats();
+}
+----
+
+Eureka Server启动的大部分初始化过程都实现在了该方法，代码如下：
+[java]
+----
+protected void initEurekaServerContext() throws Exception {
+    // DefaultEurekaServerConfig表示当前eureka server的配置，其构造函数从classpath中获取eureka-server.properties文件和
+    // eureka-server-test.properties文件并将配置保存到ConfigurationManager的instance属性中
+    // DefaultEurekaServerConfig类也为大部分属性提供了默认值
+    EurekaServerConfig eurekaServerConfig = new DefaultEurekaServerConfig();
+
+    // For backward compatibility
+    // 初始化序列化和反序列化工具类
+    JsonXStream.getInstance().registerConverter(new V1AwareInstanceInfoConverter(), XStream.PRIORITY_VERY_HIGH);
+    XmlXStream.getInstance().registerConverter(new V1AwareInstanceInfoConverter(), XStream.PRIORITY_VERY_HIGH);
+
+    logger.info("Initializing the eureka client...");
+    logger.info(eurekaServerConfig.getJsonCodecName());
+    // ServerCodecs用于获取编码和解码工具类，可以将对象编码为字符串或输出到流
+    ServerCodecs serverCodecs = new DefaultServerCodecs(eurekaServerConfig);
+
+    ApplicationInfoManager applicationInfoManager = null;
+
+    // eurekaClient默认为null
+    if (eurekaClient == null) {
+        // isCloud方法判断archaius.deployment.datacenter属性的值是否等于cloud，默认为false
+        // 所以默认EurekaInstanceConfig的实现为MyDataCenterInstanceConfig。MyDataCenterInstanceConfig表示当前的eureka server
+        // 不是运行在一个云环境
+        // EurekaInstanceConfig接口定义了被注册到eureka server的实例应该提供的配置信息，MyDataCenterInstanceConfig类继承自
+        // PropertiesInstanceConfig类，PropertiesInstanceConfig类实现了EurekaInstanceConfig接口的大部分方法，提供了大部分属性的
+        // 默认值，同时PropertiesInstanceConfig类的构造函数默认会获取eureka-client.properties文件的配置并保存到ConfigurationManager
+        // 的instance属性中
+        EurekaInstanceConfig instanceConfig = isCloud(ConfigurationManager.getDeploymentContext())
+                ? new CloudInstanceConfig()
+                : new MyDataCenterInstanceConfig();
+
+        // EurekaConfigBasedInstanceInfoProvider类实现了Provider<InstanceInfo>，能够获取InstanceInfo对象，InstanceInfo
+        // 对象表示一个注册到了eureka server的实例的信息和配置，主要包括instanceId、address、心跳状态和配置等，具体的可以看
+        // EurekaConfigBasedInstanceInfoProvider类的get方法的实现
+        // ApplicationInfoManager对象持有EurekaInstanceConfig和EurekaConfigBasedInstanceInfoProvider对象，能够表示一个
+        // 实例的信息，通过ApplicationInfoManager对象可以修改实例的信息，同时还支持添加StatusChangeListener
+        applicationInfoManager = new ApplicationInfoManager(
+                instanceConfig, new EurekaConfigBasedInstanceInfoProvider(instanceConfig).get());
+            
+        // EurekaClientConfig接口定义了一个eureka client需要提供的配置信息，这些信息决定了如何和eureka server交互，
+        // DefaultEurekaClientConfig对象根据eureka-client.properties文件的内容返回这些配置信息，并为大部分配置提供了默认值
+        EurekaClientConfig eurekaClientConfig = new DefaultEurekaClientConfig();
+        // DiscoveryClient对象可以说是最重要的对象了，该对象能够获取到eureka server上的实例信息，通过开启了心跳和拉取实例信息的定时任务
+        eurekaClient = new DiscoveryClient(applicationInfoManager, eurekaClientConfig);
+    } else {
+        applicationInfoManager = eurekaClient.getApplicationInfoManager();
+    }
+
+    PeerAwareInstanceRegistry registry;
+    if (isAws(applicationInfoManager.getInfo())) {
+        registry = new AwsInstanceRegistry(
+                eurekaServerConfig,
+                eurekaClient.getEurekaClientConfig(),
+                serverCodecs,
+                eurekaClient
+        );
+        awsBinder = new AwsBinderDelegate(eurekaServerConfig, eurekaClient.getEurekaClientConfig(), registry, applicationInfoManager);
+        awsBinder.start();
+    } else {
+        registry = new PeerAwareInstanceRegistryImpl(
+                eurekaServerConfig,
+                eurekaClient.getEurekaClientConfig(),
+                serverCodecs,
+                eurekaClient
+        );
+    }
+
+    // 创建PeerEurekaNodes对象
+    PeerEurekaNodes peerEurekaNodes = getPeerEurekaNodes(
+            registry,
+            eurekaServerConfig,
+            eurekaClient.getEurekaClientConfig(),
+            serverCodecs,
+            applicationInfoManager
+    );
+
+    // DefaultEurekaServerContext对象包含了下面这些信息
+    serverContext = new DefaultEurekaServerContext(
+            eurekaServerConfig,
+            serverCodecs,
+            registry,
+            peerEurekaNodes,
+            applicationInfoManager
+    );
+
+    // 将serverContext对象保存到单例的EurekaServerContextHolder对象中
+    EurekaServerContextHolder.initialize(serverContext);
+
+    // 调用peerEurekaNodes和registry的初始化方法
+    serverContext.initialize();
+    logger.info("Initialized server context");
+
+    // Copy registry from neighboring eureka node
+    int registryCount = registry.syncUp();
+    registry.openForTraffic(applicationInfoManager, registryCount);
+
+    // Register all monitoring statistics.
+    EurekaMonitors.registerAllStats();
+}
+----
+
+上面的代码主要做了以下几件事：
+
+- 创建了``DefaultEurekaServerConfig``对象，该对象表示作为Eureka Server时的相关配置，其构造函数解析eureka-server.properties文件和eureka-server-test.properties文件，并为大部分配置提供了默认值。
+- 创建``MyDataCenterInstanceConfig``对象，该对象定义了被注册到Eureka Server的实例应该提供的配置信息，其构造函数默认会解析eureka-client.properties文件的配置，并为大部分配置提供了默认值。
+- 创建``EurekaConfigBasedInstanceInfoProvider``对象，该对象能够根据``MyDataCenterInstanceConfig``对象创建``InstanceInfo``对象，而``InstanceInfo``对象表示一个注册到了Eureka Server的实例的信息和配置，主要包括instanceId、address、心跳状态和配置等。
+- 根据``MyDataCenterInstanceConfig``对象和``InstanceInfo``对象创建``ApplicationInfoManager``对象，表示一个Eureka Client实例，通过``ApplicationInfoManager``对象可以修改实例的信息，如果实例状态，同时还支持添加StatusChangeListener等。
+- 创建``DefaultEurekaClientConfig``对象，该对象定义了一个Eureka Client需要提供的配置信息，这些信息决定了如何和Eureka Server交互，``DefaultEurekaClientConfig``对象解析eureka-client.properties文件，并为大部分配置提供了默认值。
+- 根据``ApplicationInfoManager``对象和``DefaultEurekaClientConfig``对象创建``DiscoveryClient``对象，该对象能够获取Eureka Server保存的实例信息，同时开启了心跳和拉取实例信息的定时任务，从Eureka Server获取实例信息和将当前实例注册到Eureka Server都需要使用该对象。
+- 创建``PeerAwareInstanceRegistryImpl``对象，该对象封装了当前Eureka Server和其他Eureka Server交互的功能，
+- 创建``PeerEurekaNodes``对象，该对象包含多个``PeerEurekaNode``对象，每个``PeerEurekaNode``对象都表示其他的Eureka Server，用于实现Eureka Server间的信息同步。
+- 创建``DefaultEurekaServerContext``对象，该对象保存了以上创建的若干对象，通过该对象能够获取保存了Eureka Server一些关键的对象。
+- 初始化和并同步实例信息。
+
+下面分别接收以上提到的这些事：
+
+== ``DefaultEurekaServerConfig``对象
+该对象在``initEurekaServerContext()``方法中的初始化语句为：
+[java]
+----
+// DefaultEurekaServerConfig表示当前eureka server的配置，其构造函数从classpath中获取eureka-server.properties文件和
+// eureka-server-test.properties文件并将配置保存到ConfigurationManager的instance属性中
+// DefaultEurekaServerConfig类也为大部分属性提供了默认值
+EurekaServerConfig eurekaServerConfig = new DefaultEurekaServerConfig();
+----
+``DefaultEurekaServerConfig``类实现了``EurekaServerConfig``接口，该接口定义了一个Eureka Server的配置，``DefaultEurekaServerConfig``类实现了``EurekaServerConfig``接口的大部分方法，为大部分配置提供了默认值，如：
+[java]
+----
+@Override
+public boolean shouldEnableSelfPreservation() {
+    return configInstance.getBooleanProperty(
+            namespace + "enableSelfPreservation", true).get();
+}
+----
+``shouldEnableSelfPreservation()``方法尝试获取``eureka.enableSelfPreservation``配置（namespace属性默认值为eureka.），如果不存在该配置则返回true，``DefaultEurekaServerConfig``类的其他方法也都是类似实现方式。
+
+``DefaultEurekaServerConfig``类的构造函数从配置文件初始化配置，配置文件中的配置会覆盖默认参数：
+[java]
+----
+private void init() {
+    // 获取eureka.environment属性的值，默认值为test
+    String env = ConfigurationManager.getConfigInstance().getString(
+            EUREKA_ENVIRONMENT, TEST);
+    // 保存env的配置
+    ConfigurationManager.getConfigInstance().setProperty(
+            ARCHAIUS_DEPLOYMENT_ENVIRONMENT, env);
+
+    // 获取eureka.server.props属性的值，默认值为eureka-server，该值会被作为配置文件的文件名使用，即{eureka.server.props}.properties文件
+    String eurekaPropsFile = EUREKA_PROPS_FILE.get();
+    try {
+        // ConfigurationManager.loadPropertiesFromResources(eurekaPropsFile);
+        // 通过Thread.currentThread().getContextClassLoader()在classpath中获取配置文件，根据上面的默认值配置，默认找的是
+        // eureka-server.properties文件
+        // 查看com.netflix.config.ConfigurationManager类的loadCascadedProperties方法可以发现，如果env不为空，则在找到eureka-server.properties文件
+        // 之后，还会寻找eureka-server-{env}.properties文件，并以该文件的配置覆盖eureka-server.properties文件的配置
+        // 下面的方法运行完后配置文件的配置会保存到ConfigurationManager的instance属性中
+        ConfigurationManager
+                .loadCascadedPropertiesFromResources(eurekaPropsFile);
+    } catch (IOException e) {
+        logger.warn(
+                "Cannot find the properties specified : {}. This may be okay if there are other environment "
+                        + "specific properties or the configuration is installed with a different mechanism.",
+                eurekaPropsFile);
+    }
+}
+----
+
+== ``MyDataCenterInstanceConfig``对象
+该对象在``initEurekaServerContext()``方法中的初始化语句为：
+[java]
+----
+// isCloud方法判断archaius.deployment.datacenter属性的值是否等于cloud，默认为false
+// 所以默认EurekaInstanceConfig的实现为MyDataCenterInstanceConfig。MyDataCenterInstanceConfig表示当前的eureka server
+// 不是运行在一个云环境
+// EurekaInstanceConfig接口定义了被注册到eureka server的实例应该提供的配置信息，MyDataCenterInstanceConfig类继承自
+// PropertiesInstanceConfig类，PropertiesInstanceConfig类实现了EurekaInstanceConfig接口的大部分方法，提供了大部分属性的
+// 默认值，同时PropertiesInstanceConfig类的构造函数默认会获取eureka-client.properties文件的配置并保存到ConfigurationManager
+// 的instance属性中
+EurekaInstanceConfig instanceConfig = isCloud(ConfigurationManager.getDeploymentContext())
+        ? new CloudInstanceConfig()
+        : new MyDataCenterInstanceConfig();
+
+----
+和``DefaultEurekaServerConfig``类类似，``MyDataCenterInstanceConfig``对象实现了``EurekaInstanceConfig``接口，``EurekaInstanceConfig``接口定义了一个能够被注册到Eureka Server的实例应该提供的配置，``MyDataCenterInstanceConfig``类的父类``PropertiesInstanceConfig``实现了该接口的大部分方法，为大部分配置提供了默认值，同时在构造函数中从配置文件读取配置：
+[java]
+----
+public PropertiesInstanceConfig(String namespace, DataCenterInfo info) {
+    super(info);
+
+    // 为namespace默认加上一个'.'，因为大部分属性的默认值都是namespace.xxx的形式
+    this.namespace = namespace.endsWith(".")
+            ? namespace
+            : namespace + ".";
+
+    // 默认值为unknown
+    appGrpNameFromEnv = ConfigurationManager.getConfigInstance()
+            .getString(FALLBACK_APP_GROUP_KEY, Values.UNKNOWN_APPLICATION);
+
+    // 从eureka.client.props属性中获取配置文件名称，如果eureka.client.props属性为空，则默认使用eureka-client.properties
+    // 文件。解析的配置会被保存到ConfigurationManager的instance属性中
+    this.configInstance = Archaius1Utils.initConfig(CommonConstants.CONFIG_FILE_NAME);
+}
+----

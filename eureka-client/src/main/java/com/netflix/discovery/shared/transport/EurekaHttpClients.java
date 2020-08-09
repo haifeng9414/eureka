@@ -82,11 +82,11 @@ public final class EurekaHttpClients {
             public EurekaHttpClient newClient() {
                 return new SessionedEurekaHttpClient(
                         name,
-                        RetryableEurekaHttpClient.createFactory(
+                        RetryableEurekaHttpClient.createFactory( // 添加了retry功能
                                 name,
                                 transportConfig,
                                 clusterResolver,
-                                RedirectingEurekaHttpClient.createFactory(transportClientFactory),
+                                RedirectingEurekaHttpClient.createFactory(transportClientFactory), // 添加了处理302状态码并重定向的功能
                                 ServerStatusEvaluators.legacyEvaluator()),
                         transportConfig.getSessionedClientReconnectIntervalSeconds() * 1000
                 );
@@ -130,6 +130,7 @@ public final class EurekaHttpClients {
         }
 
         // if all else fails, return the default
+        // 创建一个AsyncResolver对象，能够从配置文件或者dns解析eureka server地址列表，并定时更新
         return defaultBootstrapResolver(clientConfig, myInstanceInfo, randomizer);
     }
 
@@ -153,6 +154,7 @@ public final class EurekaHttpClients {
                 randomizer
         );
 
+        // 获取eureka server地址列表
         List<AwsEndpoint> initialValue = delegateResolver.getClusterEndpoints();
         if (initialValue.isEmpty()) {
             String msg = "Initial resolution of Eureka server endpoints failed. Check ConfigClusterResolver logs for more info";
@@ -160,6 +162,10 @@ public final class EurekaHttpClients {
             failFastOnInitCheck(clientConfig, msg);
         }
 
+        // AsyncResolver类会定时调用delegateResolver.getClusterEndpoints()方法，注意当AsyncResolver对象的getClusterEndpoints方法
+        // 第一次被调用后定时任务才会开启
+        // clientConfig.getEurekaServiceUrlPollIntervalSeconds()方法返回eureka.serviceUrlPollIntervalMs属性，该属性决定AsyncResolver
+        // 定时调用的周期
         return new AsyncResolver<>(
                 EurekaClientNames.BOOTSTRAP,
                 delegateResolver,

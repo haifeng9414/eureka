@@ -155,7 +155,7 @@ public class DiscoveryClient implements EurekaClient {
     private final AtomicReference<Applications> localRegionApps = new AtomicReference<Applications>();
     private final Lock fetchRegistryUpdateLock = new ReentrantLock();
     // monotonically increasing generation counter to ensure stale threads do not reset registry to an older version
-    // 每次从eureka server获取实例信息时+1
+    // 每次从eureka server获取实例信息时+1，相当于版本号
     private final AtomicLong fetchRegistryGeneration;
     private final ApplicationInfoManager applicationInfoManager;
     private final InstanceInfo instanceInfo;
@@ -182,7 +182,9 @@ public class DiscoveryClient implements EurekaClient {
 
     private InstanceInfoReplicator instanceInfoReplicator;
 
+    // 拉取到的实例数量
     private volatile int registrySize = 0;
+    // 上次成功拉取实例信息的时间
     private volatile long lastSuccessfulRegistryFetchTimestamp = -1;
     private volatile long lastSuccessfulHeartbeatTimestamp = -1;
     private final ThresholdLevelsMetric heartbeatStalenessMonitor;
@@ -199,10 +201,12 @@ public class DiscoveryClient implements EurekaClient {
     private final Stats stats = new Stats();
 
     private static final class EurekaTransport {
+        // 能够从配置文件或dns获取eureka server地址列表
         private ClosableResolver bootstrapResolver;
-        // 默认为JerseyEurekaHttpClientFactory类
+        // 默认为JerseyEurekaHttpClientFactory类，用于创建EurekaHttpClient对象
         private TransportClientFactory transportClientFactory;
 
+        // 用于向eureka server发送注册请求
         private EurekaHttpClient registrationClient;
         private EurekaHttpClientFactory registrationClientFactory;
 
@@ -451,8 +455,9 @@ public class DiscoveryClient implements EurekaClient {
             scheduleServerEndpointTask(eurekaTransport, args);
 
             AzToRegionMapper azToRegionMapper;
-            // clientConfig.shouldUseDnsForFetchingServiceUrls()方法返回eureka.shouldUseDns属性，默认为false
+            // clientConfig.shouldUseDnsForFetchingServiceUrls()方法返回eureka.shouldUseDns属性，默认为false，用于决定是否从dns获取eureka server地址
             if (clientConfig.shouldUseDnsForFetchingServiceUrls()) {
+                // DNSBasedAzToRegionMapper对象从dns查询zone列表
                 azToRegionMapper = new DNSBasedAzToRegionMapper(clientConfig);
             } else {
                 // 直接根据配置文件解析region和zone的关系
@@ -471,15 +476,19 @@ public class DiscoveryClient implements EurekaClient {
         // 如果需要从eureka server获取实例信息
         if (clientConfig.shouldFetchRegistry()) {
             try {
+                // 从eureka server全量更新实例信息
                 boolean primaryFetchRegistryResult = fetchRegistry(false);
                 if (!primaryFetchRegistryResult) {
                     logger.info("Initial registry fetch from primary servers failed");
                 }
                 boolean backupFetchRegistryResult = true;
+                // 如果从eureka server获取实例信息失败，并且从BackupRegistry获取实例信息失败
                 if (!primaryFetchRegistryResult && !fetchRegistryFromBackup()) {
                     backupFetchRegistryResult = false;
                     logger.info("Initial registry fetch from backup servers failed");
                 }
+                // clientConfig.shouldEnforceFetchRegistryAtInit()方法返回eureka.shouldEnforceFetchRegistryAtInit属性，默认为false
+                // 这里在该属性为true并且上面获取实例信息失败的情况下抛出异常
                 if (!primaryFetchRegistryResult && !backupFetchRegistryResult && clientConfig.shouldEnforceFetchRegistryAtInit()) {
                     throw new IllegalStateException("Fetch registry error at startup. Initial fetch failed.");
                 }
@@ -491,11 +500,14 @@ public class DiscoveryClient implements EurekaClient {
 
         // call and execute the pre registration handler before all background tasks (inc registration) is started
         if (this.preRegistrationHandler != null) {
+            // 调用回调函数，默认为null
             this.preRegistrationHandler.beforeRegistration();
         }
 
+        // 如果需要注册到eureka server并且启动时就需要注册
         if (clientConfig.shouldRegisterWithEureka() && clientConfig.shouldEnforceRegistrationAtInit()) {
             try {
+                // 向eureka server发送注册请求，传送当前实例的InstanceInfo对象，注册失败则抛出异常
                 if (!register() ) {
                     throw new IllegalStateException("Registration error at startup. Invalid server response.");
                 }
@@ -506,9 +518,11 @@ public class DiscoveryClient implements EurekaClient {
         }
 
         // finally, init the schedule tasks (e.g. cluster resolvers, heartbeat, instanceInfo replicator, fetch
+        // 开启心跳和拉取实例信息的定时任务
         initScheduledTasks();
 
         try {
+            // 监控相关
             Monitors.registerObject(this);
         } catch (Throwable e) {
             logger.warn("Cannot register timers", e);
@@ -516,6 +530,7 @@ public class DiscoveryClient implements EurekaClient {
 
         // This is a bit of hack to allow for existing code using DiscoveryManager.getInstance()
         // to work with DI'd DiscoveryClient
+        // 将当前对象保存到单例对象中，便于其他代码使用
         DiscoveryManager.getInstance().setDiscoveryClient(this);
         DiscoveryManager.getInstance().setEurekaClientConfig(config);
 
@@ -1057,6 +1072,7 @@ public class DiscoveryClient implements EurekaClient {
                 // 从eureka server全量更新实例信息
                 getAndStoreFullRegistry();
             } else {
+                // 从eureka server增量实例信息
                 getAndUpdateDelta(applications);
             }
             // applications.getReconcileHashCode()方法返回一个字符串，表示缓存的实例信息的标识，用于判断eureka client和eureka server的数据是否有差异
@@ -1074,9 +1090,11 @@ public class DiscoveryClient implements EurekaClient {
         }
 
         // Notify about cache refresh before updating the instance remote status
+        // 发送CacheRefreshedEvent事件
         onCacheRefreshed();
 
         // Update remote status based on refreshed data held in the cache
+        // 将eureka server中保存的当前实例的状态保存到lastRemoteInstanceStatus属性中
         updateInstanceRemoteStatus();
 
         // registry was fetched successfully, so return true
@@ -1101,6 +1119,7 @@ public class DiscoveryClient implements EurekaClient {
 
         // Notify if status changed
         if (lastRemoteInstanceStatus != currentRemoteInstanceStatus) {
+            // 发送StatusChangeEvent事件
             onRemoteStatusChanged(lastRemoteInstanceStatus, currentRemoteInstanceStatus);
             lastRemoteInstanceStatus = currentRemoteInstanceStatus;
         }
@@ -1347,9 +1366,12 @@ public class DiscoveryClient implements EurekaClient {
      * Initializes all scheduled tasks.
      */
     private void initScheduledTasks() {
+        // 定时拉取实例信息
         if (clientConfig.shouldFetchRegistry()) {
             // registry cache refresh timer
+            // 获取拉取间隔，默认30s
             int registryFetchIntervalSeconds = clientConfig.getRegistryFetchIntervalSeconds();
+            // 获取eureka.client.cacheRefresh.exponentialBackOffBound参数的值，默认10，该参数加上registryFetchIntervalSeconds将会被作为timeout的最大时间
             int expBackOffBound = clientConfig.getCacheRefreshExecutorExponentialBackOffBound();
             cacheRefreshTask = new TimedSupervisorTask(
                     "cacheRefresh",
@@ -1358,15 +1380,18 @@ public class DiscoveryClient implements EurekaClient {
                     registryFetchIntervalSeconds,
                     TimeUnit.SECONDS,
                     expBackOffBound,
-                    new CacheRefreshThread()
+                    new CacheRefreshThread() // 执行重新拉取的线程对象
             );
-            scheduler.schedule(
+            scheduler.schedule( // 开始定时执行拉取
                     cacheRefreshTask,
                     registryFetchIntervalSeconds, TimeUnit.SECONDS);
         }
 
+        // 定时发送心跳
         if (clientConfig.shouldRegisterWithEureka()) {
+            // 获取心跳间隔，默认30s
             int renewalIntervalInSecs = instanceInfo.getLeaseInfo().getRenewalIntervalInSecs();
+            // 这个参数和上面拉取实例信息的参数类似
             int expBackOffBound = clientConfig.getHeartbeatExecutorExponentialBackOffBound();
             logger.info("Starting heartbeat executor: " + "renew interval is: {}", renewalIntervalInSecs);
 
@@ -1378,14 +1403,14 @@ public class DiscoveryClient implements EurekaClient {
                     renewalIntervalInSecs,
                     TimeUnit.SECONDS,
                     expBackOffBound,
-                    new HeartbeatThread()
+                    new HeartbeatThread() // 发送心跳请求的线程对象，心跳请求中会保护当前实例的InstanceInfo对象
             );
-            scheduler.schedule(
+            scheduler.schedule( // 开始定时发送心跳
                     heartbeatTask,
                     renewalIntervalInSecs, TimeUnit.SECONDS);
 
             // InstanceInfo replicator
-            instanceInfoReplicator = new InstanceInfoReplicator(
+            instanceInfoReplicator = new InstanceInfoReplicator( // 该对象会定时执行HealthCheckHandler对象的getStatus方法检查当前实例的状态，在状态发生变化时会更新状态到eureka server
                     this,
                     instanceInfo,
                     clientConfig.getInstanceInfoReplicationIntervalSeconds(),
@@ -1406,14 +1431,17 @@ public class DiscoveryClient implements EurekaClient {
                     } else {
                         logger.info("Saw local status change event {}", statusChangeEvent);
                     }
+                    // 触发instanceInfoReplicator的run方法运行
                     instanceInfoReplicator.onDemandUpdate();
                 }
             };
 
+            // 默认为true
             if (clientConfig.shouldOnDemandUpdateStatusChange()) {
                 applicationInfoManager.registerStatusChangeListener(statusChangeListener);
             }
 
+            // 开始定时执行
             instanceInfoReplicator.start(clientConfig.getInitialInstanceInfoReplicationIntervalSeconds());
         } else {
             logger.info("Not registering with Eureka server per configuration");
@@ -1493,6 +1521,7 @@ public class DiscoveryClient implements EurekaClient {
 
         InstanceStatus status;
         try {
+            // 执行状态检查回调，该回调能够决定当前实例的状态，默认直接返回传入的instanceInfo.getStatus()
             status = getHealthCheckHandler().getStatus(instanceInfo.getStatus());
         } catch (Exception e) {
             logger.warn("Exception from healthcheckHandler.getStatus, setting status to DOWN", e);
@@ -1558,19 +1587,23 @@ public class DiscoveryClient implements EurekaClient {
     @VisibleForTesting
     void refreshRegistry() {
         try {
+            // 判断配置文件是否指定了region列表
             boolean isFetchingRemoteRegionRegistries = isFetchingRemoteRegionRegistries();
 
             boolean remoteRegionsModified = false;
             // This makes sure that a dynamic change to remote regions to fetch is honored.
+            // 获取配置文件中指定的region列表
             String latestRemoteRegions = clientConfig.fetchRegistryForRemoteRegions();
             if (null != latestRemoteRegions) {
                 String currentRemoteRegions = remoteRegionsToFetch.get();
+                // 如果region列表有变化，则将新的region列表设置到instanceRegionChecker.getAzToRegionMapper()返回的对象
                 if (!latestRemoteRegions.equals(currentRemoteRegions)) {
                     // Both remoteRegionsToFetch and AzToRegionMapper.regionsToFetch need to be in sync
                     synchronized (instanceRegionChecker.getAzToRegionMapper()) {
                         if (remoteRegionsToFetch.compareAndSet(currentRemoteRegions, latestRemoteRegions)) {
                             String[] remoteRegions = latestRemoteRegions.split(",");
                             remoteRegionsRef.set(remoteRegions);
+                            // setRegionsToFetch方法除了会更新region列表，还会刷新这些region的zone列表
                             instanceRegionChecker.getAzToRegionMapper().setRegionsToFetch(remoteRegions);
                             remoteRegionsModified = true;
                         } else {
@@ -1580,10 +1613,12 @@ public class DiscoveryClient implements EurekaClient {
                     }
                 } else {
                     // Just refresh mapping to reflect any DNS/Property change
+                    // 刷新这些region的zone列表
                     instanceRegionChecker.getAzToRegionMapper().refreshMapping();
                 }
             }
 
+            // 从eureka server拉取实例信息
             boolean success = fetchRegistry(remoteRegionsModified);
             if (success) {
                 registrySize = localRegionApps.get().size();

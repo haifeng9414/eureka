@@ -113,8 +113,7 @@ public class DefaultEurekaServerConfig implements EurekaServerConfig {
         // 获取eureka.server.props属性的值，默认值为eureka-server，该值会被作为配置文件的文件名使用，即{eureka.server.props}.properties文件
         String eurekaPropsFile = EUREKA_PROPS_FILE.get();
         try {
-            // ConfigurationManager
-            // .loadPropertiesFromResources(eurekaPropsFile);
+            // ConfigurationManager.loadPropertiesFromResources(eurekaPropsFile);
             // 通过Thread.currentThread().getContextClassLoader()在classpath中获取配置文件，根据上面的默认值配置，默认找的是
             // eureka-server.properties文件
             // 查看com.netflix.config.ConfigurationManager类的loadCascadedProperties方法可以发现，如果env不为空，则在找到eureka-server.properties文件

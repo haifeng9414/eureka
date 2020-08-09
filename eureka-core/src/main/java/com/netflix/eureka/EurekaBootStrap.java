@@ -112,6 +112,7 @@ public class EurekaBootStrap implements ServletContextListener {
         try {
             // 初始化eureka.datacenter属性和eureka.environment属性属性
             initEurekaEnvironment();
+            // 初始化各种组件，创建定时任务
             initEurekaServerContext();
 
             ServletContext sc = event.getServletContext();
@@ -191,6 +192,7 @@ public class EurekaBootStrap implements ServletContextListener {
             // EurekaClientConfig接口定义了一个eureka client需要提供的配置信息，这些信息决定了如何和eureka server交互，
             // DefaultEurekaClientConfig对象根据eureka-client.properties文件的内容返回这些配置信息，并为大部分配置提供了默认值
             EurekaClientConfig eurekaClientConfig = new DefaultEurekaClientConfig();
+            // DiscoveryClient对象可以说是最重要的对象了，该对象能够获取到eureka server上的实例信息，同时开启了心跳和拉取实例信息的定时任务，从Eureka Server获取实例信息和将当前实例注册到Eureka Server都需要使用该对象
             eurekaClient = new DiscoveryClient(applicationInfoManager, eurekaClientConfig);
         } else {
             applicationInfoManager = eurekaClient.getApplicationInfoManager();
@@ -215,6 +217,7 @@ public class EurekaBootStrap implements ServletContextListener {
             );
         }
 
+        // 创建PeerEurekaNodes对象
         PeerEurekaNodes peerEurekaNodes = getPeerEurekaNodes(
                 registry,
                 eurekaServerConfig,
@@ -223,6 +226,7 @@ public class EurekaBootStrap implements ServletContextListener {
                 applicationInfoManager
         );
 
+        // DefaultEurekaServerContext对象包含了下面这些信息
         serverContext = new DefaultEurekaServerContext(
                 eurekaServerConfig,
                 serverCodecs,
@@ -231,16 +235,19 @@ public class EurekaBootStrap implements ServletContextListener {
                 applicationInfoManager
         );
 
+        // 将serverContext对象保存到单例的EurekaServerContextHolder对象中
         EurekaServerContextHolder.initialize(serverContext);
 
+        // 调用peerEurekaNodes和registry的初始化方法
         serverContext.initialize();
         logger.info("Initialized server context");
 
         // Copy registry from neighboring eureka node
-        int registryCount = registry.syncUp();
+        int registryCount = registry. syncUp();
         registry.openForTraffic(applicationInfoManager, registryCount);
 
         // Register all monitoring statistics.
+        // 监控相关
         EurekaMonitors.registerAllStats();
     }
     

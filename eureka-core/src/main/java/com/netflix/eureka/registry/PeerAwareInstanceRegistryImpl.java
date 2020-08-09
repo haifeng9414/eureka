@@ -149,11 +149,15 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
     public void init(PeerEurekaNodes peerEurekaNodes) throws Exception {
         this.numberOfReplicationsLastMin.start();
         this.peerEurekaNodes = peerEurekaNodes;
+        // 创建ResponseCacheImpl对象，该对象用于缓存注册信息
         initializedResponseCache();
+        // 定时更新numberOfRenewsPerMinThreshold实现，该属性会影响eureka server的自我保护机制
         scheduleRenewalThresholdUpdateTask();
+        // 根据eureka.remoteRegionUrlsWithName属性的值创建其他region的eureka server的RemoteRegionRegistry对象
         initRemoteRegionRegistry();
 
         try {
+            // 监控相关
             Monitors.registerObject(this);
         } catch (Throwable e) {
             logger.warn("Cannot register the JMX monitor for the InstanceRegistry :", e);
@@ -208,19 +212,24 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
         // Copy entire entry from neighboring DS node
         int count = 0;
 
+        // 默认重试次数为5
         for (int i = 0; ((i < serverConfig.getRegistrySyncRetries()) && (count == 0)); i++) {
             if (i > 0) {
                 try {
+                    // 每次重试间隔默认30s
                     Thread.sleep(serverConfig.getRegistrySyncRetryWaitMs());
                 } catch (InterruptedException e) {
                     logger.warn("Interrupted during registry transfer..");
                     break;
                 }
             }
+
+            // 获取当前eureka server保存的实例信息，eurekaClient也会定时更新实例信息
             Applications apps = eurekaClient.getApplications();
             for (Application app : apps.getRegisteredApplications()) {
                 for (InstanceInfo instance : app.getInstances()) {
                     try {
+                        // isRegisterable方法默认返回true
                         if (isRegisterable(instance)) {
                             register(instance, instance.getLeaseInfo().getDurationInSecs(), true);
                             count++;
@@ -238,10 +247,13 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
     public void openForTraffic(ApplicationInfoManager applicationInfoManager, int count) {
         // Renewals happen every 30 seconds and for a minute it should be a factor of 2.
         this.expectedNumberOfClientsSendingRenews = count;
+        // 更新numberOfRenewsPerMinThreshold属性
         updateRenewsPerMinThreshold();
         logger.info("Got {} instances from neighboring DS node", count);
         logger.info("Renew threshold is: {}", numberOfRenewsPerMinThreshold);
         this.startupTime = System.currentTimeMillis();
+        // count为启动时注册的实例数量，如果数量大于0则设置peerInstancesTransferEmptyOnStartup为false，该参数为true时会使得Eureka Server
+        // 在启动后的一定时间内（默认5min）不带外提供服务
         if (count > 0) {
             this.peerInstancesTransferEmptyOnStartup = false;
         }
@@ -252,7 +264,9 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
             primeAwsReplicas(applicationInfoManager);
         }
         logger.info("Changing status to UP");
+        // 设置当前eureka server状态为up
         applicationInfoManager.setInstanceStatus(InstanceStatus.UP);
+        // 启动定时检查实例是否过期的任务
         super.postInit();
     }
 
@@ -525,6 +539,8 @@ public class PeerAwareInstanceRegistryImpl extends AbstractInstanceRegistry impl
             synchronized (lock) {
                 // Update threshold only if the threshold is greater than the
                 // current expected threshold or if self preservation is disabled.
+                // serverConfig.getRenewalPercentThreshold()默认返回0.85
+                // this.isSelfPreservationModeEnabled()方法默认为true
                 if ((count) > (serverConfig.getRenewalPercentThreshold() * expectedNumberOfClientsSendingRenews)
                         || (!this.isSelfPreservationModeEnabled())) {
                     this.expectedNumberOfClientsSendingRenews = count;

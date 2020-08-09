@@ -84,11 +84,14 @@ public class PeerEurekaNodes {
                 }
         );
         try {
+            // resolvePeerUrls()方法返回除了自己以外的eureka server地址
+            // updatePeerEurekaNodes方法为所有传入的url创建PeerEurekaNode对象，该对象能够和对应的eureka server执行交互
             updatePeerEurekaNodes(resolvePeerUrls());
             Runnable peersUpdateTask = new Runnable() {
                 @Override
                 public void run() {
                     try {
+                        // 更新PeerEurekaNode列表
                         updatePeerEurekaNodes(resolvePeerUrls());
                     } catch (Throwable e) {
                         logger.error("Cannot update the replica Nodes", e);
@@ -96,10 +99,11 @@ public class PeerEurekaNodes {
 
                 }
             };
+            // 定时执行peersUpdateTask，定时更新PeerEurekaNode列表
             taskExecutor.scheduleWithFixedDelay(
                     peersUpdateTask,
-                    serverConfig.getPeerEurekaNodesUpdateIntervalMs(),
-                    serverConfig.getPeerEurekaNodesUpdateIntervalMs(),
+                    serverConfig.getPeerEurekaNodesUpdateIntervalMs(), // 默认10min
+                    serverConfig.getPeerEurekaNodesUpdateIntervalMs(), // 默认10min
                     TimeUnit.MILLISECONDS
             );
         } catch (Exception e) {
@@ -130,11 +134,13 @@ public class PeerEurekaNodes {
     protected List<String> resolvePeerUrls() {
         InstanceInfo myInfo = applicationInfoManager.getInfo();
         String zone = InstanceInfo.getZone(clientConfig.getAvailabilityZones(clientConfig.getRegion()), myInfo);
+        // 获取所有eureka server地址，zone和当前实例所在的zone相等的排在前面
         List<String> replicaUrls = EndpointUtils
                 .getDiscoveryServiceUrls(clientConfig, zone, new EndpointUtils.InstanceInfoBasedUrlRandomizer(myInfo));
 
         int idx = 0;
         while (idx < replicaUrls.size()) {
+            // 删除当前实例url
             if (isThisMyUrl(replicaUrls.get(idx))) {
                 replicaUrls.remove(idx);
             } else {
@@ -156,8 +162,10 @@ public class PeerEurekaNodes {
             return;
         }
 
+        // toShutdown保存的是在peerEurekaNodeUrls中存在但是在newPeerUrls不存在的url，这些url需要删掉
         Set<String> toShutdown = new HashSet<>(peerEurekaNodeUrls);
         toShutdown.removeAll(newPeerUrls);
+        // 相反，toAdd保存的是新增的url
         Set<String> toAdd = new HashSet<>(newPeerUrls);
         toAdd.removeAll(peerEurekaNodeUrls);
 
@@ -171,6 +179,7 @@ public class PeerEurekaNodes {
         if (!toShutdown.isEmpty()) {
             logger.info("Removing no longer available peer nodes {}", toShutdown);
             int i = 0;
+            // 遍历调用shutDown
             while (i < newNodeList.size()) {
                 PeerEurekaNode eurekaNode = newNodeList.get(i);
                 if (toShutdown.contains(eurekaNode.getServiceUrl())) {
@@ -184,6 +193,7 @@ public class PeerEurekaNodes {
 
         // Add new peers
         if (!toAdd.isEmpty()) {
+            // 根据url新增PeerEurekaNode对象
             logger.info("Adding new peer nodes {}", toAdd);
             for (String peerUrl : toAdd) {
                 newNodeList.add(createPeerEurekaNode(peerUrl));

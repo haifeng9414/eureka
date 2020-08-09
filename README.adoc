@@ -1,0 +1,3 @@
+link:eureka-server/README.adoc[Eureka Server]
+
+link:eureka-client/README.adoc[Eureka Client]

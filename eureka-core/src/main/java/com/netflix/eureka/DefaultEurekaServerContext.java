@@ -64,6 +64,7 @@ public class DefaultEurekaServerContext implements EurekaServerContext {
     @Override
     public void initialize() {
         logger.info("Initializing ...");
+        // PeerEurekaNodes对象保存了每个其他eureka server对应的PeerEurekaNode对象，这里会启动定时任务定时根据配置文件更新PeerEurekaNode对象列表
         peerEurekaNodes.start();
         try {
             registry.init(peerEurekaNodes);

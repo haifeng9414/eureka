@@ -38,6 +38,7 @@ import static com.netflix.discovery.EurekaClientNames.METRIC_TRANSPORT_PREFIX;
  *
  * @author Tomasz Bak
  */
+// 主要功能是在一段时间内复用EurekaHttpClient，一段时间后重新获取EurekaHttpClient对象
 public class SessionedEurekaHttpClient extends EurekaHttpClientDecorator {
     private static final Logger logger = LoggerFactory.getLogger(SessionedEurekaHttpClient.class);
 

@@ -78,6 +78,7 @@ public class PeerEurekaNode {
     private final long maxProcessingDelayMs;
     private final PeerAwareInstanceRegistry registry;
     private final String targetHost;
+    // 默认实现为JerseyReplicationClient
     private final HttpReplicationClient replicationClient;
 
     private final TaskDispatcher<String, ReplicationTask> batchingDispatcher;

@@ -73,9 +73,12 @@ public class EndpointUtils {
      */
     public static List<String> getDiscoveryServiceUrls(EurekaClientConfig clientConfig, String zone, ServiceUrlRandomizer randomizer) {
         boolean shouldUseDns = clientConfig.shouldUseDnsForFetchingServiceUrls();
+        // 默认为false
         if (shouldUseDns) {
+            // 从dns解析eureka server地址
             return getServiceUrlsFromDNS(clientConfig, zone, clientConfig.shouldPreferSameZoneEureka(), randomizer);
         }
+        // 从配置文件获取所有eureka server地址，zone和当前实例所在的zone相等的排在前面
         return getServiceUrlsFromConfig(clientConfig, zone, clientConfig.shouldPreferSameZoneEureka());
     }
 
@@ -196,13 +199,16 @@ public class EndpointUtils {
             availZones[0] = DEFAULT_ZONE;
         }
         logger.debug("The availability zone for the given region {} are {}", region, availZones);
+        // 获取当前实例所在的zone在availZones数组的的索引位置
         int myZoneOffset = getZoneOffset(instanceZone, preferSameZone, availZones);
 
+        // 获取配置文件中eureka.serviceUrl.{zone}属性，即当前zone的eureka server地址的列表
         List<String> serviceUrls = clientConfig.getEurekaServerServiceUrls(availZones[myZoneOffset]);
         if (serviceUrls != null) {
             orderedUrls.addAll(serviceUrls);
         }
         int currentOffset = myZoneOffset == (availZones.length - 1) ? 0 : (myZoneOffset + 1);
+        // 获取其他zone的eureka server地址列表
         while (currentOffset != myZoneOffset) {
             serviceUrls = clientConfig.getEurekaServerServiceUrls(availZones[currentOffset]);
             if (serviceUrls != null) {
@@ -238,14 +244,18 @@ public class EndpointUtils {
             availZones[0] = DEFAULT_ZONE;
         }
         logger.debug("The availability zone for the given region {} are {}", region, availZones);
+        // 获取当前实例的zone在availZones数组的索引位置，如果为找到则返回0
         int myZoneOffset = getZoneOffset(instanceZone, preferSameZone, availZones);
 
         String zone = availZones[myZoneOffset];
+        // 获取eureka.serviceUrl.{zone}属性的值，如果没有则返回eureka.serviceUrl.default属性的值。以逗号隔开
         List<String> serviceUrls = clientConfig.getEurekaServerServiceUrls(zone);
         if (serviceUrls != null) {
+            // 保存zone下的eureka server地址列表
             orderedUrls.put(zone, serviceUrls);
         }
         int currentOffset = myZoneOffset == (availZones.length - 1) ? 0 : (myZoneOffset + 1);
+        // 遍历其他的zone并以同样的方式获取eureka server地址
         while (currentOffset != myZoneOffset) {
             zone = availZones[currentOffset];
             serviceUrls = clientConfig.getEurekaServerServiceUrls(zone);

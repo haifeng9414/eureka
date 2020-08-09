@@ -117,12 +117,15 @@ public class DnsTxtRecordClusterResolver implements ClusterResolver<AwsEndpoint>
 
     private static List<AwsEndpoint> resolve(String region, String rootClusterDNS, boolean extractZone, int port, boolean isSecure, String relativeUri) {
         try {
+            // 根据dns获取当前region下zone的dns列表
             Set<String> zoneDomainNames = resolve(rootClusterDNS);
             if (zoneDomainNames.isEmpty()) {
                 throw new ClusterResolverException("Cannot resolve Eureka cluster addresses; there are no data in TXT record for DN " + rootClusterDNS);
             }
             List<AwsEndpoint> endpoints = new ArrayList<>();
+            // 遍历zone dns
             for (String zoneDomain : zoneDomainNames) {
+                // 再根据zone dns获取eureka server的地址列表
                 String zone = extractZone ? ResolverUtils.extractZoneFromHostName(zoneDomain) : null;
                 Set<String> zoneAddresses = resolve(zoneDomain);
                 for (String address : zoneAddresses) {
