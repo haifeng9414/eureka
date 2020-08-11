@@ -60,7 +60,7 @@ public class EurekaConfigBasedInstanceInfoProvider implements Provider<InstanceI
             InstanceInfo.Builder builder = InstanceInfo.Builder.newBuilder(vipAddressResolver);
 
             // set the appropriate id for the InstanceInfo, falling back to datacenter Id if applicable, else hostname
-            // 获取instanceId
+            // 获取instanceId，即eureka.instanceId
             String instanceId = config.getInstanceId();
             if (instanceId == null || instanceId.isEmpty()) {
                 // 如果instanceId为空则尝试以dataCenter id为instanceId

@@ -364,14 +364,20 @@ public class DiscoveryClient implements EurekaClient {
         }
 
         this.backupRegistryProvider = backupRegistryProvider;
+        // 用于打乱endpoint
         this.endpointRandomizer = endpointRandomizer;
+        // 用于打乱url
         this.urlRandomizer = new EndpointUtils.InstanceInfoBasedUrlRandomizer(instanceInfo);
+        // Applications对象保存了所有当前实例已知的Application对象，一个Application对象表示一个应用程序，一个应用程序下有一个或多个
+        // InstanceInfo对象
         localRegionApps.set(new Applications());
 
         fetchRegistryGeneration = new AtomicLong(0);
 
-        // clientConfig.fetchRegistryForRemoteRegions()返回eureka.fetchRemoteRegionsRegistry属性的值，默认返回null
+        // clientConfig.fetchRegistryForRemoteRegions()返回eureka.fetchRemoteRegionsRegistry属性的值，默认返回null，该属性以
+        // 逗号分隔，定义了region列表
         remoteRegionsToFetch = new AtomicReference<String>(clientConfig.fetchRegistryForRemoteRegions());
+        // 从remoteRegionsToFetch属性提取region列表
         remoteRegionsRef = new AtomicReference<>(remoteRegionsToFetch.get() == null ? null : remoteRegionsToFetch.get().split(","));
 
         // 获取eureka.shouldFetchRegistry属性的值，默认为true，该属性表示是否定期从eureka server获取应用信息
